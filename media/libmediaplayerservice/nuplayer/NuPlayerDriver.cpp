@@ -105,6 +105,7 @@ NuPlayerDriver::~NuPlayerDriver() {
     updateMetrics("destructor");
     logMetrics("destructor");
 
+    Mutex::Autolock autoLock(mMetricsLock);
     if (mAnalyticsItem != NULL) {
         delete mAnalyticsItem;
         mAnalyticsItem = NULL;
@@ -538,11 +539,33 @@ void NuPlayerDriver::updateMetrics(const char *where) {
     if (where == NULL) {
         where = "unknown";
     }
-    ALOGV("updateMetrics(%p) from %s at state %d", this, where, mState);
+    ALOGD("updateMetrics(%p) from %s at state %d", this, where, mState);
 
-    // gather the final stats for this record
+    // gather the final track statistics for this record
     Vector<sp<AMessage>> trackStats;
     mPlayer->getStats(&trackStats);
+
+    // getDuration() uses mLock
+    int duration_ms = -1;
+    getDuration(&duration_ms);
+
+    int64_t playingTimeUs;
+    {
+        Mutex::Autolock autoLock(mLock);
+
+        playingTimeUs = mPlayingTimeUs;
+    }
+
+    // finish the rest of the gathering holding mMetricsLock;
+    // to avoid any races within mediametrics machinery
+    Mutex::Autolock autoLock(mMetricsLock);
+
+    mAnalyticsItem->setInt64(kPlayerDuration, duration_ms);
+
+    // these update under mLock, we'll read them under mLock
+    mAnalyticsItem->setInt64(kPlayerPlaying, (playingTimeUs+500)/1000 );
+
+    mAnalyticsItem->setCString(kPlayerDataSourceType, mPlayer->getDataSourceType());
 
     if (trackStats.size() > 0) {
         for (size_t i = 0; i < trackStats.size(); ++i) {
@@ -584,17 +607,6 @@ void NuPlayerDriver::updateMetrics(const char *where) {
             }
         }
     }
-
-    // always provide duration and playing time, even if they have 0/unknown values.
-
-    // getDuration() uses mLock for mutex -- careful where we use it.
-    int duration_ms = -1;
-    getDuration(&duration_ms);
-    mAnalyticsItem->setInt64(kPlayerDuration, duration_ms);
-
-    mAnalyticsItem->setInt64(kPlayerPlaying, (mPlayingTimeUs+500)/1000 );
-
-    mAnalyticsItem->setCString(kPlayerDataSourceType, mPlayer->getDataSourceType());
 }
 
 
@@ -603,6 +615,9 @@ void NuPlayerDriver::logMetrics(const char *where) {
         where = "unknown";
     }
     ALOGV("logMetrics(%p) from %s at state %d", this, where, mState);
+
+    // make sure that the stats are stable while we're writing them.
+    Mutex::Autolock autoLock(mMetricsLock);
 
     if (mAnalyticsItem == NULL || mAnalyticsItem->isEnabled() == false) {
         return;
@@ -762,6 +777,9 @@ status_t NuPlayerDriver::getParameter(int key, Parcel *reply) {
         // gather current info all together, parcel it, and send it back
         if (mAnalyticsItem != NULL) {
             updateMetrics("api");
+
+            // make sure that the stats are static while we're writing to the parcel
+            Mutex::Autolock autoLock(mMetricsLock);
             mAnalyticsItem->writeToParcel(reply);
             return OK;
         }
@@ -980,9 +998,12 @@ void NuPlayerDriver::notifyListener_l(
             // ext1 is our primary 'error type' value. Only add ext2 when non-zero.
             // [test against msg is due to fall through from previous switch value]
             if (msg == MEDIA_ERROR && mAnalyticsItem != NULL) {
-                mAnalyticsItem->setInt32(kPlayerError, ext1);
-                if (ext2 != 0) {
-                    mAnalyticsItem->setInt32(kPlayerErrorCode, ext2);
+                Mutex::Autolock autoLock(mMetricsLock);
+                if (mAnalyticsItem != NULL) {
+                    mAnalyticsItem->setInt32(kPlayerError, ext1);
+                    if (ext2 != 0) {
+                        mAnalyticsItem->setInt32(kPlayerErrorCode, ext2);
+                    }
                 }
             }
             mAtEOS = true;

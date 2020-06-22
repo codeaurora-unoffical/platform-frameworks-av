@@ -28,7 +28,7 @@ namespace android {
 
 void AudioPolicyMix::dump(String8 *dst, int spaces, int index) const
 {
-    dst->appendFormat("%*sAudio Policy Mix %d:\n", spaces, "", index + 1);
+    dst->appendFormat("%*sAudio Policy Mix %d (%p):\n", spaces, "", index + 1, this);
     std::string mixTypeLiteral;
     if (!MixTypeConverter::toString(mMixType, mixTypeLiteral)) {
         ALOGE("%s: failed to convert mix type %d", __FUNCTION__, mMixType);
@@ -43,6 +43,9 @@ void AudioPolicyMix::dump(String8 *dst, int spaces, int index) const
     dst->appendFormat("%*s- device type: %s\n", spaces, "", toString(mDeviceType).c_str());
 
     dst->appendFormat("%*s- device address: %s\n", spaces, "", mDeviceAddress.string());
+
+    dst->appendFormat("%*s- output: %d\n", spaces, "",
+            mOutput == nullptr ? 0 : mOutput->mIoHandle);
 
     int indexCriterion = 0;
     for (const auto &criterion : mCriteria) {
@@ -150,11 +153,11 @@ void AudioPolicyMixCollection::closeOutput(sp<SwAudioOutputDescriptor> &desc)
 status_t AudioPolicyMixCollection::getOutputForAttr(
         const audio_attributes_t& attributes, uid_t uid,
         audio_output_flags_t flags,
-        sp<SwAudioOutputDescriptor> &primaryDesc,
-        std::vector<sp<SwAudioOutputDescriptor>> *secondaryDescs)
+        sp<AudioPolicyMix> &primaryMix,
+        std::vector<sp<AudioPolicyMix>> *secondaryMixes)
 {
     ALOGV("getOutputForAttr() querying %zu mixes:", size());
-    primaryDesc = 0;
+    primaryMix.clear();
     for (size_t i = 0; i < size(); i++) {
         sp<AudioPolicyMix> policyMix = itemAt(i);
         const bool primaryOutputMix = !is_mix_loopback_render(policyMix->mRouteFlags);
@@ -169,13 +172,7 @@ status_t AudioPolicyMixCollection::getOutputForAttr(
             return INVALID_OPERATION;
         }
 
-        sp<SwAudioOutputDescriptor> policyDesc = policyMix->getOutput();
-        if (!policyDesc) {
-            ALOGV("%s: Skiping %zu: Mix has no output", __func__, i);
-            continue;
-        }
-
-        if (primaryOutputMix && primaryDesc != 0) {
+        if (primaryOutputMix && primaryMix != nullptr) {
             ALOGV("%s: Skiping %zu: Primary output already found", __func__, i);
             continue; // Primary output already found
         }
@@ -191,18 +188,13 @@ status_t AudioPolicyMixCollection::getOutputForAttr(
             case MixMatchStatus::MATCH:;
         }
 
-        policyDesc->mPolicyMix = policyMix;
         if (primaryOutputMix) {
-            primaryDesc = policyDesc;
+            primaryMix = policyMix;
             ALOGV("%s: Mix %zu: set primary desc", __func__, i);
         } else {
-            if (policyDesc->mIoHandle == AUDIO_IO_HANDLE_NONE) {
-                ALOGV("%s: Mix %zu ignored as secondaryOutput because not opened yet", __func__, i);
-            } else {
-                ALOGV("%s: Add a secondary desc %zu", __func__, i);
-                if (secondaryDescs != nullptr) {
-                    secondaryDescs->push_back(policyDesc);
-                }
+            ALOGV("%s: Add a secondary desc %zu", __func__, i);
+            if (secondaryMixes != nullptr) {
+                secondaryMixes->push_back(policyMix);
             }
         }
     }

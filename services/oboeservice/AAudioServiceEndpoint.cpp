@@ -27,13 +27,13 @@
 
 #include <utils/Singleton.h>
 
-#include "AAudioEndpointManager.h"
-#include "AAudioServiceEndpoint.h"
 
 #include "core/AudioStreamBuilder.h"
+
+#include "AAudioEndpointManager.h"
+#include "AAudioClientTracker.h"
 #include "AAudioServiceEndpoint.h"
 #include "AAudioServiceStreamShared.h"
-#include "AAudioServiceEndpointShared.h"
 
 using namespace android;  // TODO just import names needed
 using namespace aaudio;   // TODO just import names needed
@@ -87,16 +87,40 @@ bool AAudioServiceEndpoint::isStreamRegistered(audio_port_handle_t portHandle) {
     return false;
 }
 
-void AAudioServiceEndpoint::disconnectRegisteredStreams() {
-    std::lock_guard<std::mutex> lock(mLockStreams);
+std::vector<android::sp<AAudioServiceStreamBase>>
+        AAudioServiceEndpoint::disconnectRegisteredStreams() {
+    std::vector<android::sp<AAudioServiceStreamBase>> streamsDisconnected;
+    {
+        std::lock_guard<std::mutex> lock(mLockStreams);
+        mRegisteredStreams.swap(streamsDisconnected);
+    }
     mConnected.store(false);
-    for (const auto& stream : mRegisteredStreams) {
-        ALOGD("disconnectRegisteredStreams() stop and disconnect port %d",
-              stream->getPortHandle());
+    // We need to stop all the streams before we disconnect them.
+    // Otherwise there is a race condition where the first disconnected app
+    // tries to reopen a stream as MMAP but is blocked by the second stream,
+    // which hasn't stopped yet. Then the first app ends up with a Legacy stream.
+    for (const auto &stream : streamsDisconnected) {
+        ALOGD("%s() - stop(), port = %d", __func__, stream->getPortHandle());
         stream->stop();
+    }
+    for (const auto &stream : streamsDisconnected) {
+        ALOGD("%s() - disconnect(), port = %d", __func__, stream->getPortHandle());
         stream->disconnect();
     }
-    mRegisteredStreams.clear();
+    return streamsDisconnected;
+}
+
+void AAudioServiceEndpoint::releaseRegisteredStreams() {
+    // List of streams to be closed after we disconnect everything.
+    std::vector<android::sp<AAudioServiceStreamBase>> streamsToClose
+            = disconnectRegisteredStreams();
+
+    // Close outside the lock to avoid recursive locks.
+    AAudioService *aaudioService = AAudioClientTracker::getInstance().getAAudioService();
+    for (const auto& serviceStream : streamsToClose) {
+        ALOGD("%s() - close stream 0x%08X", __func__, serviceStream->getHandle());
+        aaudioService->closeStream(serviceStream);
+    }
 }
 
 aaudio_result_t AAudioServiceEndpoint::registerStream(sp<AAudioServiceStreamBase>stream) {

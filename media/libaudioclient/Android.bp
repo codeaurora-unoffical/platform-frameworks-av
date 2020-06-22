@@ -1,6 +1,8 @@
 cc_library_headers {
     name: "libaudioclient_headers",
     vendor_available: true,
+    min_sdk_version: "29",
+
     header_libs: [
         "libaudiofoundation_headers",
     ],
@@ -158,6 +160,7 @@ filegroup {
 
 aidl_interface {
     name: "capture_state_listener-aidl",
+    unstable: true,
     local_include_dir: "aidl",
     srcs: [
         "aidl/android/media/ICaptureStateListener.aidl",

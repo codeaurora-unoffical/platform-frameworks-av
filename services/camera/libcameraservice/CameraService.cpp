@@ -467,10 +467,21 @@ void CameraService::onDeviceStatusChanged(const String8& id,
             logDeviceRemoved(idCombo,
                     String8::format("Device status changed to %d", newStatus));
         }
-
+        // Avoid calling getSystemCameraKind() with mStatusListenerLock held (b/141756275)
+        SystemCameraKind deviceKind = SystemCameraKind::PUBLIC;
+        if (getSystemCameraKind(id, &deviceKind) != OK) {
+            ALOGE("%s: Invalid camera id %s, skipping", __FUNCTION__, id.string());
+            return;
+        }
         String16 id16(id), physicalId16(physicalId);
         Mutex::Autolock lock(mStatusListenerLock);
         for (auto& listener : mListenerList) {
+            if (shouldSkipStatusUpdates(deviceKind, listener->isVendorListener(),
+                    listener->getListenerPid(), listener->getListenerUid())) {
+                ALOGV("Skipping discovery callback for system-only camera device %s",
+                        id.c_str());
+                continue;
+            }
             listener->getListener()->onPhysicalCameraStatusChanged(mapToInterface(newStatus),
                     id16, physicalId16);
         }
@@ -1366,7 +1377,12 @@ status_t CameraService::handleEvictionsLocked(const String8& cameraId, int clien
             Mutex::Autolock l(mLogLock);
             mEventLog.add(msg);
 
-            return -EBUSY;
+            auto current = mActiveClientManager.get(cameraId);
+            if (current != nullptr) {
+                return -EBUSY; // CAMERA_IN_USE
+            } else {
+                return -EUSERS; // MAX_CAMERAS_IN_USE
+            }
         }
 
         for (auto& i : evicted) {
@@ -1657,6 +1673,10 @@ Status CameraService::connectHelper(const sp<CALLBACK>& cameraCb, const String8&
                 case -EBUSY:
                     return STATUS_ERROR_FMT(ERROR_CAMERA_IN_USE,
                             "Higher-priority client using camera, ID \"%s\" currently unavailable",
+                            cameraId.string());
+                case -EUSERS:
+                    return STATUS_ERROR_FMT(ERROR_MAX_CAMERAS_IN_USE,
+                            "Too many cameras already open, cannot open camera \"%s\"",
                             cameraId.string());
                 default:
                     return STATUS_ERROR_FMT(ERROR_INVALID_OPERATION,
@@ -2743,7 +2763,7 @@ CameraService::BasicClient::BasicClient(const sp<CameraService>& cameraService,
         mClientPackageName(clientPackageName),
         mClientPid(clientPid), mClientUid(clientUid),
         mServicePid(servicePid),
-        mDisconnected(false),
+        mDisconnected(false), mUidIsTrusted(false),
         mAudioRestriction(hardware::camera2::ICameraDeviceUser::AUDIO_RESTRICTION_NONE),
         mRemoteBinder(remoteCallback)
 {
@@ -2792,6 +2812,8 @@ CameraService::BasicClient::BasicClient(const sp<CameraService>& cameraService,
     if (getCurrentServingCall() != BinderCallType::HWBINDER) {
         mAppOpsManager = std::make_unique<AppOpsManager>();
     }
+
+    mUidIsTrusted = isTrustedCallingUid(mClientUid);
 }
 
 CameraService::BasicClient::~BasicClient() {
@@ -2906,7 +2928,9 @@ status_t CameraService::BasicClient::startCameraOps() {
             return PERMISSION_DENIED;
         }
 
-        if (res == AppOpsManager::MODE_IGNORED) {
+        // If the calling Uid is trusted (a native service), the AppOpsManager could
+        // return MODE_IGNORED. Do not treat such case as error.
+        if (!mUidIsTrusted && res == AppOpsManager::MODE_IGNORED) {
             ALOGI("Camera %s: Access for \"%s\" has been restricted",
                     mCameraIdStr.string(), String8(mClientPackageName).string());
             // Return the same error as for device policy manager rejection
@@ -3189,9 +3213,7 @@ bool CameraService::UidPolicy::isUidActiveLocked(uid_t uid, String16 callingPack
             // some polling which should happen pretty rarely anyway as the race is hard
             // to hit.
             active = mActiveUids.find(uid) != mActiveUids.end();
-            if (!active) {
-                active = am.isUidActiveOrForeground(uid, callingPackage);
-            }
+            if (!active) active = am.isUidActive(uid, callingPackage);
             if (active) {
                 break;
             }
@@ -3756,13 +3778,13 @@ void CameraService::updateStatus(StatusInternal status, const String8& cameraId,
 
             Mutex::Autolock lock(mStatusListenerLock);
 
-            notifyPhysicalCameraStatusLocked(mapToInterface(status), cameraId);
+            notifyPhysicalCameraStatusLocked(mapToInterface(status), cameraId, deviceKind);
 
             for (auto& listener : mListenerList) {
                 bool isVendorListener = listener->isVendorListener();
                 if (shouldSkipStatusUpdates(deviceKind, isVendorListener,
                         listener->getListenerPid(), listener->getListenerUid()) ||
-                    (isVendorListener && !supportsHAL3)) {
+                        (isVendorListener && !supportsHAL3)) {
                     ALOGV("Skipping discovery callback for system-only camera/HAL1 device %s",
                             cameraId.c_str());
                     continue;
@@ -3874,7 +3896,8 @@ status_t CameraService::setTorchStatusLocked(const String8& cameraId,
     return OK;
 }
 
-void CameraService::notifyPhysicalCameraStatusLocked(int32_t status, const String8& cameraId) {
+void CameraService::notifyPhysicalCameraStatusLocked(int32_t status, const String8& cameraId,
+        SystemCameraKind deviceKind) {
     Mutex::Autolock lock(mCameraStatesLock);
     for (const auto& state : mCameraStates) {
         std::vector<std::string> physicalCameraIds;
@@ -3890,6 +3913,12 @@ void CameraService::notifyPhysicalCameraStatusLocked(int32_t status, const Strin
 
         String16 id16(state.first), physicalId16(cameraId);
         for (auto& listener : mListenerList) {
+            if (shouldSkipStatusUpdates(deviceKind, listener->isVendorListener(),
+                    listener->getListenerPid(), listener->getListenerUid())) {
+                ALOGV("Skipping discovery callback for system-only camera device %s",
+                        cameraId.c_str());
+                continue;
+            }
             listener->getListener()->onPhysicalCameraStatusChanged(status,
                     id16, physicalId16);
         }

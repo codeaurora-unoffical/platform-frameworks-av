@@ -97,10 +97,7 @@ public:
 
     virtual void        invalidate() {
                             if (mIsInvalid) return;
-                            mediametrics::LogItem(mMetricsId)
-                                .set(AMEDIAMETRICS_PROP_EVENT,
-                                     AMEDIAMETRICS_PROP_EVENT_VALUE_INVALIDATE)
-                                .record();
+                            mTrackMetrics.logInvalidate();
                             mIsInvalid = true;
                         }
             bool        isInvalid() const { return mIsInvalid; }
@@ -242,6 +239,20 @@ public:
         }
     }
 
+    // Called by the PlaybackThread to indicate that the track is becoming active
+    // and a new interval should start with a given device list.
+    void logBeginInterval(const std::string& devices) {
+        mTrackMetrics.logBeginInterval(devices);
+    }
+
+    // Called by the PlaybackThread to indicate the track is no longer active.
+    void logEndInterval() {
+        mTrackMetrics.logEndInterval();
+    }
+
+    // Called to tally underrun frames in playback.
+    virtual void tallyUnderrunFrames(size_t /* frames */) {}
+
 protected:
     DISALLOW_COPY_AND_ASSIGN(TrackBase);
 
@@ -362,12 +373,17 @@ protected:
     bool                mIsInvalid; // non-resettable latch, set by invalidate()
 
     // It typically takes 5 threadloop mix iterations for latency to stabilize.
-    static inline constexpr int32_t LOG_START_COUNTDOWN = 8;
-    int32_t             mLogStartCountdown = 0;
-    int64_t             mLogStartTimeNs = 0;
-    int64_t             mLogStartFrames = 0;
+    // However, this can be 12+ iterations for BT.
+    // To be sure, we wait for latency to dip (it usually increases at the start)
+    // to assess stability and then log to MediaMetrics.
+    // Rapid start / pause calls may cause inaccurate numbers.
+    static inline constexpr int32_t LOG_START_COUNTDOWN = 12;
+    int32_t             mLogStartCountdown = 0; // Mixer period countdown
+    int64_t             mLogStartTimeNs = 0;    // Monotonic time at start()
+    int64_t             mLogStartFrames = 0;    // Timestamp frames at start()
+    double              mLogLatencyMs = 0.;     // Track the last log latency
 
-    const std::string   mMetricsId;
+    TrackMetrics        mTrackMetrics;
 
     bool                mServerLatencySupported = false;
     std::atomic<bool>   mServerLatencyFromTrack{}; // latency from track or server timestamp.

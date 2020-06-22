@@ -141,6 +141,8 @@ struct MediaCodec : public AHandler {
     // object.
     status_t release();
 
+    status_t releaseAsync(const sp<AMessage> &notify);
+
     status_t flush();
 
     status_t queueInputBuffer(
@@ -371,7 +373,8 @@ private:
     sp<Surface> mSurface;
     SoftwareRenderer *mSoftRenderer;
 
-    mediametrics_handle_t mMetricsHandle;
+    mediametrics_handle_t mMetricsHandle = 0;
+    nsecs_t mLifetimeStartNs = 0;
     void initMediametrics();
     void updateMediametrics();
     void flushMediametrics();
@@ -382,6 +385,7 @@ private:
     sp<AMessage> mInputFormat;
     sp<AMessage> mCallback;
     sp<AMessage> mOnFrameRenderedNotification;
+    sp<AMessage> mAsyncReleaseCompleteNotification;
 
     sp<ResourceManagerServiceProxy> mResourceManagerProxy;
 
@@ -510,6 +514,12 @@ private:
     int64_t mIndexOfFirstFrameWhenLowLatencyOn;  // index of the first frame queued
                                                  // when low latency is on
     int64_t mInputBufferCounter;  // number of input buffers queued since last reset/flush
+
+    class ReleaseSurface;
+    std::unique_ptr<ReleaseSurface> mReleaseSurface;
+
+    std::list<sp<AMessage>> mLeftover;
+    status_t handleLeftover(size_t index);
 
     sp<BatteryChecker> mBatteryChecker;
 

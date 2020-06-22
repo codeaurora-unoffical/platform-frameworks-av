@@ -32,7 +32,8 @@
 
 namespace android {
 
-using namespace mediametrics;
+using mediametrics::Item;
+using mediametrics::startsWith;
 
 // individual records kept in memory: age or count
 // age: <= 28 hours (1 1/6 days)
@@ -63,7 +64,7 @@ nsecs_t MediaMetricsService::roundTime(nsecs_t timeNs)
 bool MediaMetricsService::useUidForPackage(
         const std::string& package, const std::string& installer)
 {
-    if (strchr(package.c_str(), '.') == NULL) {
+    if (strchr(package.c_str(), '.') == nullptr) {
         return false;  // not of form 'com.whatever...'; assume internal and ok
     } else if (strncmp(package.c_str(), "android.", 8) == 0) {
         return false;  // android.* packages are assumed fine
@@ -75,6 +76,22 @@ bool MediaMetricsService::useUidForPackage(
         return false;  // preloads
     } else {
         return true;  // we're not sure where it came from, use uid only.
+    }
+}
+
+/* static */
+std::pair<std::string, int64_t>
+MediaMetricsService::getSanitizedPackageNameAndVersionCode(uid_t uid) {
+    // Meyer's singleton, initialized on first access.
+    // mUidInfo is locked internally.
+    static mediautils::UidInfo uidInfo;
+
+    // get info.
+    mediautils::UidInfo::Info info = uidInfo.getInfo(uid);
+    if (useUidForPackage(info.package, info.installer)) {
+        return { std::to_string(uid), /* versionCode */ 0 };
+    } else {
+        return { info.package, info.versionCode };
     }
 }
 
@@ -135,17 +152,11 @@ status_t MediaMetricsService::submitInternal(mediametrics::Item *item, bool rele
 
     // Overwrite package name and version if the caller was untrusted or empty
     if (!isTrusted || item->getPkgName().empty()) {
-        const uid_t uid = item->getUid();
-        mediautils::UidInfo::Info info = mUidInfo.getInfo(uid);
-        if (useUidForPackage(info.package, info.installer)) {
-            // remove uid information of unknown installed packages.
-            // TODO: perhaps this can be done just before uploading to Westworld.
-            item->setPkgName(std::to_string(uid));
-            item->setPkgVersionCode(0);
-        } else {
-            item->setPkgName(info.package);
-            item->setPkgVersionCode(info.versionCode);
-        }
+        const uid_t uidItem = item->getUid();
+        const auto [ pkgName, version ] =
+                MediaMetricsService::getSanitizedPackageNameAndVersionCode(uidItem);
+        item->setPkgName(pkgName);
+        item->setPkgVersionCode(version);
     }
 
     ALOGV("%s: isTrusted:%d given uid %d; sanitized uid: %d sanitized pkg: %s "
@@ -258,7 +269,7 @@ status_t MediaMetricsService::dump(int fd, const Vector<String16>& args)
                 String8 value(args[i]);
                 char *endp;
                 const char *p = value.string();
-                long long sec = strtoll(p, &endp, 10);
+                const auto sec = (int64_t)strtoll(p, &endp, 10);
                 if (endp == p || *endp != '\0' || sec == 0) {
                     sinceNs = 0;
                 } else if (sec < 0) {
@@ -282,8 +293,8 @@ status_t MediaMetricsService::dump(int fd, const Vector<String16>& args)
         } else {
             result.appendFormat("Dump of the %s process:\n", kServiceName);
             const char *prefixptr = prefix.size() > 0 ? prefix.c_str() : nullptr;
-            dumpHeaders_l(result, sinceNs, prefixptr);
-            dumpQueue_l(result, sinceNs, prefixptr);
+            dumpHeaders(result, sinceNs, prefixptr);
+            dumpQueue(result, sinceNs, prefixptr);
 
             // TODO: maybe consider a better way of dumping audio analytics info.
             const int32_t linesToDump = all ? INT32_MAX : 1000;
@@ -312,7 +323,7 @@ status_t MediaMetricsService::dump(int fd, const Vector<String16>& args)
 }
 
 // dump headers
-void MediaMetricsService::dumpHeaders_l(String8 &result, int64_t sinceNs, const char* prefix)
+void MediaMetricsService::dumpHeaders(String8 &result, int64_t sinceNs, const char* prefix)
 {
     if (mediametrics::Item::isEnabled()) {
         result.append("Metrics gathering: enabled\n");
@@ -337,7 +348,7 @@ void MediaMetricsService::dumpHeaders_l(String8 &result, int64_t sinceNs, const 
 }
 
 // TODO: should prefix be a set<string>?
-void MediaMetricsService::dumpQueue_l(String8 &result, int64_t sinceNs, const char* prefix)
+void MediaMetricsService::dumpQueue(String8 &result, int64_t sinceNs, const char* prefix)
 {
     if (mItems.empty()) {
         result.append("empty\n");
@@ -364,7 +375,7 @@ void MediaMetricsService::dumpQueue_l(String8 &result, int64_t sinceNs, const ch
 
 // if item != NULL, it's the item we just inserted
 // true == more items eligible to be recovered
-bool MediaMetricsService::expirations_l(const std::shared_ptr<const mediametrics::Item>& item)
+bool MediaMetricsService::expirations(const std::shared_ptr<const mediametrics::Item>& item)
 {
     bool more = false;
 
@@ -419,7 +430,7 @@ void MediaMetricsService::processExpirations()
     do {
         sleep(1);
         std::lock_guard _l(mLock);
-        more = expirations_l(nullptr);
+        more = expirations(nullptr);
     } while (more);
 }
 
@@ -429,7 +440,7 @@ void MediaMetricsService::saveItem(const std::shared_ptr<const mediametrics::Ite
     // we assume the items are roughly in time order.
     mItems.emplace_back(item);
     ++mItemsFinalized;
-    if (expirations_l(item)
+    if (expirations(item)
             && (!mExpireFuture.valid()
                || mExpireFuture.wait_for(std::chrono::seconds(0)) == std::future_status::ready)) {
         mExpireFuture = std::async(std::launch::async, [this] { processExpirations(); });

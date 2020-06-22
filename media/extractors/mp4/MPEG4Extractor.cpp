@@ -20,6 +20,7 @@
 #include <ctype.h>
 #include <inttypes.h>
 #include <algorithm>
+#include <map>
 #include <memory>
 #include <stdint.h>
 #include <stdlib.h>
@@ -113,6 +114,7 @@ private:
     const Trex *mTrex;
     off64_t mFirstMoofOffset;
     off64_t mCurrentMoofOffset;
+    off64_t mCurrentMoofSize;
     off64_t mNextMoofOffset;
     uint32_t mCurrentTime; // in media timescale ticks
     int32_t mLastParsedTrackId;
@@ -165,8 +167,9 @@ private:
     status_t parseTrackFragmentRun(off64_t offset, off64_t size);
     status_t parseSampleAuxiliaryInformationSizes(off64_t offset, off64_t size);
     status_t parseSampleAuxiliaryInformationOffsets(off64_t offset, off64_t size);
-    status_t parseClearEncryptedSizes(off64_t offset, bool isSubsampleEncryption, uint32_t flags);
-    status_t parseSampleEncryption(off64_t offset);
+    status_t parseClearEncryptedSizes(off64_t offset, bool isSampleEncryption,
+            uint32_t flags, off64_t size);
+    status_t parseSampleEncryption(off64_t offset, off64_t size);
     // returns -1 for invalid layer ID
     int32_t parseHEVCLayerId(const uint8_t *data, size_t size);
 
@@ -202,6 +205,7 @@ private:
         Vector<size_t> encryptedsizes;
     };
     Vector<Sample> mCurrentSamples;
+    std::map<off64_t, uint32_t> mDrmOffsets;
 
     MPEG4Source(const MPEG4Source &);
     MPEG4Source &operator=(const MPEG4Source &);
@@ -4859,6 +4863,7 @@ MPEG4Source::MPEG4Source(
       mTrex(trex),
       mFirstMoofOffset(firstMoofOffset),
       mCurrentMoofOffset(firstMoofOffset),
+      mCurrentMoofSize(0),
       mNextMoofOffset(-1),
       mCurrentTime(0),
       mDefaultEncryptedByteBlock(0),
@@ -5109,6 +5114,9 @@ status_t MPEG4Source::parseChunk(off64_t *offset) {
         case FOURCC("moof"): {
             off64_t stop_offset = *offset + chunk_size;
             *offset = data_offset;
+            if (chunk_type == FOURCC("moof")) {
+                mCurrentMoofSize = chunk_data_size;
+            }
             while (*offset < stop_offset) {
                 status_t err = parseChunk(offset);
                 if (err != OK) {
@@ -5147,6 +5155,9 @@ status_t MPEG4Source::parseChunk(off64_t *offset) {
                     if (chunk_type == FOURCC("moof")) {
                         mNextMoofOffset = *offset;
                         break;
+                    } else if (chunk_type == FOURCC("mdat")) {
+                        parseChunk(offset);
+                        continue;
                     } else if (chunk_size == 0) {
                         break;
                     }
@@ -5197,7 +5208,7 @@ status_t MPEG4Source::parseChunk(off64_t *offset) {
 
         case FOURCC("senc"): {
             status_t err;
-            if ((err = parseSampleEncryption(data_offset)) != OK) {
+            if ((err = parseSampleEncryption(data_offset, chunk_data_size)) != OK) {
                 return err;
             }
             *offset += chunk_size;
@@ -5208,6 +5219,22 @@ status_t MPEG4Source::parseChunk(off64_t *offset) {
             // parse DRM info if present
             ALOGV("MPEG4Source::parseChunk mdat");
             // if saiz/saoi was previously observed, do something with the sampleinfos
+            status_t err = OK;
+            auto kv = mDrmOffsets.lower_bound(*offset);
+            if (kv != mDrmOffsets.end()) {
+                auto drmoffset = kv->first;
+                auto flags = kv->second;
+                mDrmOffsets.erase(kv);
+                ALOGV("mdat chunk_size %" PRIu64 " drmoffset %" PRId64 " offset %" PRId64,
+                        chunk_size, drmoffset, *offset);
+                if (chunk_size >= drmoffset - *offset) {
+                    err = parseClearEncryptedSizes(drmoffset, false, flags,
+                        chunk_size - (drmoffset - *offset));
+                }
+            }
+            if (err != OK) {
+                return err;
+            }
             *offset += chunk_size;
             break;
         }
@@ -5389,12 +5416,14 @@ status_t MPEG4Source::parseSampleAuxiliaryInformationOffsets(
     off64_t drmoffset = mCurrentSampleInfoOffsets[0]; // from moof
 
     drmoffset += mCurrentMoofOffset;
+    mDrmOffsets[drmoffset] = flags;
+    ALOGV("saio drmoffset %" PRId64 " flags %u", drmoffset, flags);
 
-    return parseClearEncryptedSizes(drmoffset, false, 0);
+    return OK;
 }
 
 status_t MPEG4Source::parseClearEncryptedSizes(
-        off64_t offset, bool isSubsampleEncryption, uint32_t flags) {
+        off64_t offset, bool isSampleEncryption, uint32_t flags, off64_t size) {
 
     int32_t ivlength;
     if (!AMediaFormat_getInt32(mFormat, AMEDIAFORMAT_KEY_CRYPTO_DEFAULT_IV_SIZE, &ivlength)) {
@@ -5408,11 +5437,15 @@ status_t MPEG4Source::parseClearEncryptedSizes(
     }
 
     uint32_t sampleCount = mCurrentSampleInfoCount;
-    if (isSubsampleEncryption) {
+    if (isSampleEncryption) {
+        if (size < 4) {
+            return ERROR_MALFORMED;
+        }
         if (!mDataSource->getUInt32(offset, &sampleCount)) {
             return ERROR_IO;
         }
         offset += 4;
+        size -= 4;
     }
 
     // read CencSampleAuxiliaryDataFormats
@@ -5427,14 +5460,18 @@ status_t MPEG4Source::parseClearEncryptedSizes(
         }
 
         memset(smpl->iv, 0, 16);
+        if (size < ivlength) {
+            return ERROR_MALFORMED;
+        }
         if (mDataSource->readAt(offset, smpl->iv, ivlength) != ivlength) {
             return ERROR_IO;
         }
 
         offset += ivlength;
+        size -= ivlength;
 
         bool readSubsamples;
-        if (isSubsampleEncryption) {
+        if (isSampleEncryption) {
             readSubsamples = flags & 2;
         } else {
             int32_t smplinfosize = mCurrentDefaultSampleInfoSize;
@@ -5446,13 +5483,20 @@ status_t MPEG4Source::parseClearEncryptedSizes(
 
         if (readSubsamples) {
             uint16_t numsubsamples;
+            if (size < 2) {
+                return ERROR_MALFORMED;
+            }
             if (!mDataSource->getUInt16(offset, &numsubsamples)) {
                 return ERROR_IO;
             }
             offset += 2;
+            size -= 2;
             for (size_t j = 0; j < numsubsamples; j++) {
                 uint16_t numclear;
                 uint32_t numencrypted;
+                if (size < 6) {
+                    return ERROR_MALFORMED;
+                }
                 if (!mDataSource->getUInt16(offset, &numclear)) {
                     return ERROR_IO;
                 }
@@ -5461,6 +5505,7 @@ status_t MPEG4Source::parseClearEncryptedSizes(
                     return ERROR_IO;
                 }
                 offset += 4;
+                size -= 6;
                 smpl->clearsizes.add(numclear);
                 smpl->encryptedsizes.add(numencrypted);
             }
@@ -5473,12 +5518,15 @@ status_t MPEG4Source::parseClearEncryptedSizes(
     return OK;
 }
 
-status_t MPEG4Source::parseSampleEncryption(off64_t offset) {
+status_t MPEG4Source::parseSampleEncryption(off64_t offset, off64_t chunk_data_size) {
     uint32_t flags;
+    if (chunk_data_size < 4) {
+        return ERROR_MALFORMED;
+    }
     if (!mDataSource->getUInt32(offset, &flags)) { // actually version + flags
         return ERROR_MALFORMED;
     }
-    return parseClearEncryptedSizes(offset + 4, true, flags);
+    return parseClearEncryptedSizes(offset + 4, true, flags, chunk_data_size - 4);
 }
 
 status_t MPEG4Source::parseTrackFragmentHeader(off64_t offset, off64_t size) {

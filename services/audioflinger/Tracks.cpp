@@ -106,7 +106,7 @@ AudioFlinger::ThreadBase::TrackBase::TrackBase(
         mThreadIoHandle(thread ? thread->id() : AUDIO_IO_HANDLE_NONE),
         mPortId(portId),
         mIsInvalid(false),
-        mMetricsId(std::move(metricsId)),
+        mTrackMetrics(std::move(metricsId), isOut),
         mCreatorPid(creatorPid)
 {
     const uid_t callingUid = IPCThreadState::self()->getCallingUid();
@@ -602,12 +602,7 @@ AudioFlinger::PlaybackThread::Track::Track(
     }
 
     // Once this item is logged by the server, the client can add properties.
-    mediametrics::LogItem(mMetricsId)
-        .setPid(creatorPid)
-        .setUid(uid)
-        .set(AMEDIAMETRICS_PROP_EVENT,
-                AMEDIAMETRICS_PROP_PREFIX_SERVER AMEDIAMETRICS_PROP_EVENT_VALUE_CTOR)
-        .record();
+    mTrackMetrics.logConstructor(creatorPid, uid, streamType);
 }
 
 AudioFlinger::PlaybackThread::Track::~Track()
@@ -983,7 +978,8 @@ status_t AudioFlinger::PlaybackThread::Track::start(AudioSystem::sync_event_t ev
             mLogStartCountdown = LOG_START_COUNTDOWN;
             mLogStartTimeNs = systemTime();
             mLogStartFrames = mAudioTrackServerProxy->getTimestamp()
-                    .mPosition[ExtendedTimestamp::LOCATION_SERVER];
+                    .mPosition[ExtendedTimestamp::LOCATION_KERNEL];
+            mLogLatencyMs = 0.;
         }
 
         if (status == NO_ERROR || status == ALREADY_EXISTS) {
@@ -1248,6 +1244,7 @@ void AudioFlinger::PlaybackThread::Track::setFinalVolume(float volume)
     if (mFinalVolume != volume) { // Compare to an epsilon if too many meaningless updates
         mFinalVolume = volume;
         setMetadataHasChanged();
+        mTrackMetrics.logVolume(volume);
     }
 }
 
@@ -1515,26 +1512,31 @@ void AudioFlinger::PlaybackThread::Track::updateTrackFrameInfo(
     mServerLatencyFromTrack.store(useTrackTimestamp);
     mServerLatencyMs.store(latencyMs);
 
-    if (mLogStartCountdown > 0) {
-        if (--mLogStartCountdown == 0) {
+    if (mLogStartCountdown > 0
+            && local.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL] > 0
+            && local.mPosition[ExtendedTimestamp::LOCATION_KERNEL] > 0)
+    {
+        if (mLogStartCountdown > 1) {
+            --mLogStartCountdown;
+        } else if (latencyMs < mLogLatencyMs) { // wait for latency to stabilize (dip)
+            mLogStartCountdown = 0;
             // startup is the difference in times for the current timestamp and our start
             double startUpMs =
-                    (local.mTimeNs[ExtendedTimestamp::LOCATION_SERVER] - mLogStartTimeNs) * 1e-6;
+                    (local.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL] - mLogStartTimeNs) * 1e-6;
             // adjust for frames played.
-            startUpMs -= (local.mPosition[ExtendedTimestamp::LOCATION_SERVER] - mLogStartFrames)
-                      * 1e3 / mSampleRate;
-            ALOGV("%s: logging localTime:%lld, startTime:%lld"
-                  "  localPosition:%lld, startPosition:%lld",
-                    __func__,
-                    (long long)local.mTimeNs[ExtendedTimestamp::LOCATION_SERVER],
+            startUpMs -= (local.mPosition[ExtendedTimestamp::LOCATION_KERNEL] - mLogStartFrames)
+                    * 1e3 / mSampleRate;
+            ALOGV("%s: latencyMs:%lf startUpMs:%lf"
+                    " localTime:%lld startTime:%lld"
+                    " localPosition:%lld startPosition:%lld",
+                    __func__, latencyMs, startUpMs,
+                    (long long)local.mTimeNs[ExtendedTimestamp::LOCATION_KERNEL],
                     (long long)mLogStartTimeNs,
-                    (long long)local.mPosition[ExtendedTimestamp::LOCATION_SERVER],
+                    (long long)local.mPosition[ExtendedTimestamp::LOCATION_KERNEL],
                     (long long)mLogStartFrames);
-            mediametrics::LogItem(mMetricsId)
-                .set(AMEDIAMETRICS_PROP_LATENCYMS, latencyMs)
-                .set(AMEDIAMETRICS_PROP_STARTUPMS, startUpMs)
-                .record();
+            mTrackMetrics.logLatencyAndStartup(latencyMs, startUpMs);
         }
+        mLogLatencyMs = latencyMs;
     }
 }
 
@@ -2159,11 +2161,7 @@ AudioFlinger::RecordThread::RecordTrack::RecordTrack(
 #endif
 
     // Once this item is logged by the server, the client can add properties.
-    mediametrics::LogItem(mMetricsId)
-        .setPid(creatorPid)
-        .setUid(uid)
-        .set(AMEDIAMETRICS_PROP_EVENT, "server." AMEDIAMETRICS_PROP_EVENT_VALUE_CTOR)
-        .record();
+    mTrackMetrics.logConstructor(creatorPid, uid);
 }
 
 AudioFlinger::RecordThread::RecordTrack::~RecordTrack()
@@ -2720,9 +2718,12 @@ AudioFlinger::MmapThread::MmapTrack::MmapTrack(ThreadBase *thread,
                   nullptr /* buffer */, (size_t)0 /* bufferSize */,
                   sessionId, creatorPid, uid, isOut,
                   ALLOC_NONE,
-                  TYPE_DEFAULT, portId),
+                  TYPE_DEFAULT, portId,
+                  std::string(AMEDIAMETRICS_KEY_PREFIX_AUDIO_MMAP) + std::to_string(portId)),
         mPid(pid), mSilenced(false), mSilencedNotified(false)
 {
+    // Once this item is logged by the server, the client can add properties.
+    mTrackMetrics.logConstructor(creatorPid, uid);
 }
 
 AudioFlinger::MmapThread::MmapTrack::~MmapTrack()

@@ -18,6 +18,7 @@
 #include <utils/Log.h>
 
 #include "MediaMetricsService.h"
+#include "StringUtils.h"
 
 #include <stdio.h>
 
@@ -79,7 +80,7 @@ TEST(mediametrics_tests, shared_ptr_wrap) {
     const int mFinal;
 
     public:
-      Thunk(decltype(mF) f, int final) : mF(f), mFinal(final) {}
+      explicit Thunk(decltype(mF) f, int final) : mF(std::move(f)), mFinal(final) {}
       ~Thunk() { mF(mFinal); }
       void thunk(int value) { mF(value); }
   };
@@ -139,7 +140,7 @@ TEST(mediametrics_tests, lock_wrap) {
     std::function<void()> mF;
 
     public:
-      Thunk(decltype(mF) f) : mF(f) {}
+      explicit Thunk(decltype(mF) f) : mF(std::move(f)) {}
       void thunk() { mF(); }
   };
 
@@ -803,7 +804,43 @@ TEST(mediametrics_tests, audio_analytics_permission) {
 
   // TODO: Verify contents of AudioAnalytics.
   // Currently there is no getter API in AudioAnalytics besides dump.
-  ASSERT_EQ(9, audioAnalytics.dump(1000).second /* lines */);
+  ASSERT_EQ(10, audioAnalytics.dump(1000).second /* lines */);
+
+  ASSERT_EQ(NO_ERROR, audioAnalytics.submit(item, true /* isTrusted */));
+  // untrusted entities can add to an existing key
+  ASSERT_EQ(NO_ERROR, audioAnalytics.submit(item2, false /* isTrusted */));
+
+  // Check that we have some info in the dump.
+  ASSERT_LT(9, audioAnalytics.dump(1000).second /* lines */);
+}
+
+TEST(mediametrics_tests, audio_analytics_permission2) {
+  constexpr int32_t transactionUid = 1010; // arbitrary
+  auto item = std::make_shared<mediametrics::Item>("audio.1");
+  (*item).set("one", (int32_t)1)
+         .set("two", (int32_t)2)
+         .set(AMEDIAMETRICS_PROP_ALLOWUID, transactionUid)
+         .setTimestamp(10);
+
+  // item2 submitted untrusted
+  auto item2 = std::make_shared<mediametrics::Item>("audio.1");
+  (*item2).set("three", (int32_t)3)
+         .setUid(transactionUid)
+         .setTimestamp(11);
+
+  auto item3 = std::make_shared<mediametrics::Item>("audio.2");
+  (*item3).set("four", (int32_t)4)
+          .setTimestamp(12);
+
+  android::mediametrics::AudioAnalytics audioAnalytics;
+
+  // untrusted entities cannot create a new key.
+  ASSERT_EQ(PERMISSION_DENIED, audioAnalytics.submit(item, false /* isTrusted */));
+  ASSERT_EQ(PERMISSION_DENIED, audioAnalytics.submit(item2, false /* isTrusted */));
+
+  // TODO: Verify contents of AudioAnalytics.
+  // Currently there is no getter API in AudioAnalytics besides dump.
+  ASSERT_EQ(10, audioAnalytics.dump(1000).second /* lines */);
 
   ASSERT_EQ(NO_ERROR, audioAnalytics.submit(item, true /* isTrusted */));
   // untrusted entities can add to an existing key
@@ -845,6 +882,48 @@ TEST(mediametrics_tests, audio_analytics_dump) {
       ASSERT_EQ(ll, l);
       ASSERT_EQ(ll, (int32_t) countNewlines(s.c_str()));
   }
+}
+
+TEST(mediametrics_tests, device_parsing) {
+    auto devaddr = android::mediametrics::stringutils::getDeviceAddressPairs("(DEVICE, )");
+    ASSERT_EQ((size_t)1, devaddr.size());
+    ASSERT_EQ("DEVICE", devaddr[0].first);
+    ASSERT_EQ("", devaddr[0].second);
+
+    devaddr = android::mediametrics::stringutils::getDeviceAddressPairs(
+            "(DEVICE1, A)|(D, ADDRB)");
+    ASSERT_EQ((size_t)2, devaddr.size());
+    ASSERT_EQ("DEVICE1", devaddr[0].first);
+    ASSERT_EQ("A", devaddr[0].second);
+    ASSERT_EQ("D", devaddr[1].first);
+    ASSERT_EQ("ADDRB", devaddr[1].second);
+
+    devaddr = android::mediametrics::stringutils::getDeviceAddressPairs(
+            "(A,B)|(C,D)");
+    ASSERT_EQ((size_t)2, devaddr.size());
+    ASSERT_EQ("A", devaddr[0].first);
+    ASSERT_EQ("B", devaddr[0].second);
+    ASSERT_EQ("C", devaddr[1].first);
+    ASSERT_EQ("D", devaddr[1].second);
+
+    devaddr = android::mediametrics::stringutils::getDeviceAddressPairs(
+            "  ( A1 , B )  | ( C , D2 )  ");
+    ASSERT_EQ((size_t)2, devaddr.size());
+    ASSERT_EQ("A1", devaddr[0].first);
+    ASSERT_EQ("B", devaddr[0].second);
+    ASSERT_EQ("C", devaddr[1].first);
+    ASSERT_EQ("D2", devaddr[1].second);
+}
+
+TEST(mediametrics_tests, timed_action) {
+    android::mediametrics::TimedAction timedAction;
+    std::atomic_int value1 = 0;
+
+    timedAction.postIn(std::chrono::seconds(0), [&value1] { ++value1; });
+    timedAction.postIn(std::chrono::seconds(1000), [&value1] { ++value1; });
+    usleep(100000);
+    ASSERT_EQ(1, value1);
+    ASSERT_EQ((size_t)1, timedAction.size());
 }
 
 #if 0

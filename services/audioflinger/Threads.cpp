@@ -2098,12 +2098,6 @@ sp<AudioFlinger::PlaybackThread::Track> AudioFlinger::PlaybackThread::createTrac
         outputFlags = (audio_output_flags_t)(outputFlags | AUDIO_OUTPUT_FLAG_FAST);
     }
 
-    // Set DIRECT flag if current thread is DirectOutputThread. This can happen when the playback is
-    // rerouted to direct output thread by dynamic audio policy.
-    if (mType == DIRECT) {
-        *flags = (audio_output_flags_t)(*flags | AUDIO_OUTPUT_FLAG_DIRECT);
-    }
-
     // Check if requested flags are compatible with output stream flags
     if ((*flags & outputFlags) != *flags) {
         ALOGW("createTrack_l(): mismatch between requested flags (%08x) and output flags (%08x)",
@@ -7206,6 +7200,8 @@ reacquire_wakelock:
         // reference to a fast track which is about to be removed
         sp<RecordTrack> fastTrackToRemove;
 
+        bool silenceFastCapture = false;
+
         { // scope for mLock
             Mutex::Autolock _l(mLock);
 
@@ -7293,14 +7289,33 @@ reacquire_wakelock:
                             __func__, activeTrackState, activeTrack->id(), size);
                 }
 
-                activeTracks.add(activeTrack);
-                i++;
-
                 if (activeTrack->isFastTrack()) {
                     ALOG_ASSERT(!mFastTrackAvail);
                     ALOG_ASSERT(fastTrack == 0);
+                    // if the active fast track is silenced either:
+                    // 1) silence the whole capture from fast capture buffer if this is
+                    //    the only active track
+                    // 2) invalidate this track: this will cause the client to reconnect and possibly
+                    //    be invalidated again until unsilenced
+                    if (activeTrack->isSilenced()) {
+                        if (size > 1) {
+                            activeTrack->invalidate();
+                            ALOG_ASSERT(fastTrackToRemove == 0);
+                            fastTrackToRemove = activeTrack;
+                            removeTrack_l(activeTrack);
+                            mActiveTracks.remove(activeTrack);
+                            size--;
+                            continue;
+                        } else {
+                            silenceFastCapture = true;
+                        }
+                    }
                     fastTrack = activeTrack;
                 }
+
+                activeTracks.add(activeTrack);
+                i++;
+
             }
 
             mActiveTracks.updatePowerState(this);
@@ -7372,6 +7387,10 @@ reacquire_wakelock:
                 state->mFastPatchRecordBufferProvider = abp;
                 state->mFastPatchRecordFormat = fastTrack == 0 ?
                         AUDIO_FORMAT_INVALID : fastTrack->format();
+                didModify = true;
+            }
+            if (state->mSilenceCapture != silenceFastCapture) {
+                state->mSilenceCapture = silenceFastCapture;
                 didModify = true;
             }
             sq->end(didModify);
@@ -7458,8 +7477,10 @@ reacquire_wakelock:
 
         // Update server timestamp with server stats
         // systemTime() is optional if the hardware supports timestamps.
-        mTimestamp.mPosition[ExtendedTimestamp::LOCATION_SERVER] += framesRead;
-        mTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_SERVER] = lastIoEndNs;
+        if (framesRead >= 0) {
+            mTimestamp.mPosition[ExtendedTimestamp::LOCATION_SERVER] += framesRead;
+            mTimestamp.mTimeNs[ExtendedTimestamp::LOCATION_SERVER] = lastIoEndNs;
+        }
 
         // Update server timestamp with kernel stats
         if (mPipeSource.get() == nullptr /* don't obtain for FastCapture, could block */) {
@@ -8526,13 +8547,14 @@ void AudioFlinger::RecordThread::readInputParameters_l()
     }
     result = mInput->stream->getFrameSize(&mFrameSize);
     LOG_ALWAYS_FATAL_IF(result != OK, "Error retrieving frame size from HAL: %d", result);
+    LOG_ALWAYS_FATAL_IF(mFrameSize <= 0, "Error frame size was %zu but must be greater than zero",
+            mFrameSize);
     result = mInput->stream->getBufferSize(&mBufferSize);
     LOG_ALWAYS_FATAL_IF(result != OK, "Error retrieving buffer size from HAL: %d", result);
     mFrameCount = mBufferSize / mFrameSize;
-    ALOGV("%p RecordThread params: mChannelCount=%u, mFormat=%#x, mFrameSize=%lld, "
-            "mBufferSize=%lld, mFrameCount=%lld",
-            this, mChannelCount, mFormat, (long long)mFrameSize, (long long)mBufferSize,
-            (long long)mFrameCount);
+    ALOGV("%p RecordThread params: mChannelCount=%u, mFormat=%#x, mFrameSize=%zu, "
+            "mBufferSize=%zu, mFrameCount=%zu",
+            this, mChannelCount, mFormat, mFrameSize, mBufferSize, mFrameCount);
     // This is the formula for calculating the temporary buffer size.
     // With 7 HAL buffers, we can guarantee ability to down-sample the input by ratio of 6:1 to
     // 1 full output buffer, regardless of the alignment of the available input.
@@ -9108,6 +9130,8 @@ void AudioFlinger::MmapThread::readHalParameters_l()
     LOG_ALWAYS_FATAL_IF(!audio_is_linear_pcm(mFormat), "HAL format %#x is not linear pcm", mFormat);
     result = mHalStream->getFrameSize(&mFrameSize);
     LOG_ALWAYS_FATAL_IF(result != OK, "Error retrieving frame size from HAL: %d", result);
+    LOG_ALWAYS_FATAL_IF(mFrameSize <= 0, "Error frame size was %zu but must be greater than zero",
+            mFrameSize);
     result = mHalStream->getBufferSize(&mBufferSize);
     LOG_ALWAYS_FATAL_IF(result != OK, "Error retrieving buffer size from HAL: %d", result);
     mFrameCount = mBufferSize / mFrameSize;

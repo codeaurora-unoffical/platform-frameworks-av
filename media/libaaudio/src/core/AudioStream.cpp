@@ -116,9 +116,10 @@ void AudioStream::logOpen() {
     }
 }
 
-void AudioStream::logBufferState() {
+void AudioStream::logReleaseBufferState() {
     if (mMetricsId.size() > 0) {
         android::mediametrics::LogItem(mMetricsId)
+                .set(AMEDIAMETRICS_PROP_EVENT, AMEDIAMETRICS_PROP_EVENT_VALUE_RELEASE)
                 .set(AMEDIAMETRICS_PROP_BUFFERSIZEFRAMES, (int32_t) getBufferSize())
                 .set(AMEDIAMETRICS_PROP_UNDERRUN, (int32_t) getXRunCount())
                 .record();
@@ -140,6 +141,7 @@ aaudio_result_t AudioStream::systemStart() {
         case AAUDIO_STREAM_STATE_PAUSED:
         case AAUDIO_STREAM_STATE_STOPPING:
         case AAUDIO_STREAM_STATE_STOPPED:
+        case AAUDIO_STREAM_STATE_FLUSHING:
         case AAUDIO_STREAM_STATE_FLUSHED:
             break; // Proceed with starting.
 

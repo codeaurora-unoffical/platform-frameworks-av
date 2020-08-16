@@ -83,8 +83,9 @@ sp<IMemory> allocVideoFrame(const sp<MetaData>& trackMeta,
         tmp = width; width = height; height = tmp;
         tmp = displayWidth; displayWidth = displayHeight; displayHeight = tmp;
         tmp = tileWidth; tileWidth = tileHeight; tileHeight = tmp;
-        rotationAngle = 0;
     }
+    if (allocRotated)
+        rotationAngle = 0;
 
     VideoFrame frame(width, height, displayWidth, displayHeight,
             tileWidth, tileHeight, rotationAngle, dstBpp, !metaOnly, iccSize);
@@ -429,7 +430,11 @@ status_t FrameDecoder::extractInternal() {
                         break;
                     }
                     if (mSurface != nullptr) {
-                        mDecoder->renderOutputBufferAndRelease(index);
+                        if (!shouldDropOutput(ptsUs)) {
+                            mDecoder->renderOutputBufferAndRelease(index);
+                        } else {
+                            mDecoder->releaseOutputBuffer(index);
+                        }
                         err = onOutputReceived(videoFrameBuffer, mOutputFormat, ptsUs, &done);
                     } else {
                         err = onOutputReceived(videoFrameBuffer, mOutputFormat, ptsUs, &done);
@@ -574,10 +579,9 @@ status_t VideoFrameDecoder::onOutputReceived(
         durationUs = *mSampleDurations.begin();
         mSampleDurations.erase(mSampleDurations.begin());
     }
-    bool shouldOutput = (mTargetTimeUs < 0LL) || (timeUs >= mTargetTimeUs);
 
     // If this is not the target frame, skip color convert.
-    if (!shouldOutput) {
+    if (shouldDropOutput(timeUs)) {
         *done = false;
         return OK;
     }
@@ -597,10 +601,13 @@ status_t VideoFrameDecoder::onOutputReceived(
         return ERROR_MALFORMED;
     }
 
-    if (!outputFormat->findInt32("stride", &stride) ||
-            !outputFormat->findInt32("slice-height", &slice_height)) {
+    if (!outputFormat->findInt32("slice-height", &slice_height)) {
+        slice_height = height;
+    }
+
+    if (!outputFormat->findInt32("stride", &stride)) {
         if (mCaptureLayer == NULL) {
-            ALOGE("format must have stride and slice-height for byte buffer mode: %s",
+            ALOGE("format must have stride for byte buffer mode: %s",
                     outputFormat->debugString().c_str());
             return ERROR_MALFORMED;
         }
@@ -861,7 +868,10 @@ status_t ImageDecoder::onOutputReceived(
     CHECK(outputFormat->findInt32("width", &width));
     CHECK(outputFormat->findInt32("height", &height));
     CHECK(outputFormat->findInt32("stride", &stride));
-    CHECK(outputFormat->findInt32("slice-height", &slice_height));
+
+    if (!outputFormat->findInt32("slice-height", &slice_height)) {
+        slice_height = height;
+    }
 
     if (mFrame == NULL) {
         sp<IMemory> frameMem = allocVideoFrame(

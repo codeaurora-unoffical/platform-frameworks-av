@@ -66,14 +66,15 @@ sp<TimeCheck::TimeCheckThread> TimeCheck::getTimeCheckThread()
     return sTimeCheckThread;
 }
 
-static uint32_t timeOutMs = (uint32_t)property_get_int32("vendor.audio.hal.boot.timeout.ms", TimeCheck::kDefaultTimeOutMs);
+static uint32_t timeOutMs = TimeCheck::kDefaultTimeOutMs;
 
-TimeCheck::TimeCheck(const char *tag, bool systemReady)
+void TimeCheck::setSystemReadyTimeoutMs(uint32_t timeout_ms)
 {
-    if (systemReady) {
-        timeOutMs = kDefaultTimeOutMs;
-        ALOGI("System is ready use default timeout: %d msec", timeOutMs);
-    }
+    timeOutMs = timeout_ms;
+}
+
+TimeCheck::TimeCheck(const char *tag)
+{
     mEndTimeNs = getTimeCheckThread()->startMonitoring(tag, timeOutMs);
 }
 

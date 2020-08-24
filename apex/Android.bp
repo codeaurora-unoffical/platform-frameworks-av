@@ -43,11 +43,6 @@ apex_defaults {
     androidManifest: ":com.android.media-androidManifest",
 }
 
-apex {
-    name: "com.android.media",
-    manifest: "manifest.json",
-    defaults: ["com.android.media-defaults"],
-}
 
 filegroup {
     name: "com.android.media-androidManifest",

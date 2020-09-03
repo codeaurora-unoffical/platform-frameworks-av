@@ -94,7 +94,9 @@ struct ACodec : public AHierarchicalStateMachine, public CodecBase {
     };
 
     static status_t getOMXChannelMapping(size_t numChannels, OMX_AUDIO_CHANNELTYPE map[]);
-
+// KaiOS Start
+    friend struct MediaCodec;
+// KaiOS End
 protected:
     virtual ~ACodec();
     virtual status_t setupCustomCodec(
@@ -286,6 +288,9 @@ protected:
 
     sp<IGraphicBufferSource> mGraphicBufferSource;
     int64_t mRepeatFrameDelayUs;
+// KaiOS Start
+    bool mUseUndequeuedBufs;
+// KaiOS End
     int64_t mMaxPtsGapUs;
     float mMaxFps;
     double mFps;

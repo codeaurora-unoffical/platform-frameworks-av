@@ -567,6 +567,9 @@ ACodec::ACodec()
       mMetadataBuffersToSubmit(0),
       mNumUndequeuedBuffers(0),
       mRepeatFrameDelayUs(-1LL),
+// KaiOS Start
+      mUseUndequeuedBufs(false),
+// KaiOS End
       mMaxPtsGapUs(0LL),
       mMaxFps(-1),
       mFps(-1.0),
@@ -1296,7 +1299,15 @@ status_t ACodec::allocateOutputBuffersFromNativeWindow() {
         cancelEnd = mBuffers[kPortIndexOutput].size();
     } else {
         // Return the required minimum undequeued buffers to the native window.
-        cancelStart = bufferCount - minUndequeuedBuffers;
+// KaiOS Start
+        if (mUseUndequeuedBufs) {
+          cancelStart = bufferCount;
+        } else {
+// KaiOS end
+          cancelStart = bufferCount - minUndequeuedBuffers;
+// KaiOS Start
+        }
+// KaiOS end
         cancelEnd = bufferCount;
     }
 
@@ -1352,8 +1363,15 @@ status_t ACodec::allocateOutputMetadataBuffers() {
         ALOGV("[%s] allocated meta buffer with ID %u",
                 mComponentName.c_str(), info.mBufferID);
     }
-
-    mMetadataBuffersToSubmit = bufferCount - minUndequeuedBuffers;
+// KaiOS Start
+    if (mUseUndequeuedBufs) {ALOGV("mMetadataBuffersToSubmit = bufferCount");
+      mMetadataBuffersToSubmit = bufferCount;
+    } else {ALOGV("mMetadataBuffersToSubmit = bufferCount - minUndequeuedBuffers");
+// KaiOS End
+      mMetadataBuffersToSubmit = bufferCount - minUndequeuedBuffers;
+// KaiOS Start
+    }
+// KaiOS End
     return err;
 }
 
@@ -2368,7 +2386,14 @@ status_t ACodec::configureCodec(
             }
         }
     }
-
+// KaiOS Start
+    int32_t useUndequeuedBufs;
+    if (msg->findInt32("moz-use-undequeued-bufs", &useUndequeuedBufs)) {
+        mUseUndequeuedBufs = true;
+    } else {
+        mUseUndequeuedBufs = false;
+    }
+// KaiOS End
     return err;
 }
 

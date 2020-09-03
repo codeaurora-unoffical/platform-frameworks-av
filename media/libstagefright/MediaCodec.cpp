@@ -3815,5 +3815,25 @@ std::string MediaCodec::stateString(State state) {
     }
     return rval;
 }
+// KaiOS Start
+sp<GraphicBuffer> MediaCodec::getOutputGraphicBufferFromIndex(size_t index) {
 
+    Mutex::Autolock al(mBufferLock);
+    if (mState != STARTED || index >= mPortBuffers[kPortIndexOutput].size()) {
+        return NULL;
+    }
+
+    // Since we want to access ACodec::mBuffers to get GraphicBuffer,
+    // we need to make sure mCodec is an instance of ACodec,
+    // Because RTTI is disabled in AOSP build, we can't use dynamic_cast to
+    // achieve the type checking.
+    // We use the approach as MediaCodec::GetCodecBase() instead, so please
+    // make sure below checking is synced with MediaCodec::GetCodecBase().
+    if (mInitName.startsWithIgnoreCase("omx.") == false) {
+        return NULL;
+    }
+
+    return ((ACodec*)mCodec.get())->mBuffers[kPortIndexOutput].editItemAt(index).mGraphicBuffer;
+}
+// KaiOS End
 }  // namespace android

@@ -200,7 +200,9 @@ struct MediaCodec : public AHandler {
     // of frames that were rendered.
     static size_t CreateFramesRenderedMessage(
             const std::list<FrameRenderTracker::Info> &done, sp<AMessage> &msg);
-
+// KaiOS Start
+    sp<GraphicBuffer> getOutputGraphicBufferFromIndex(size_t index);
+// KaiOS End
 protected:
     virtual ~MediaCodec();
     virtual void onMessageReceived(const sp<AMessage> &msg);

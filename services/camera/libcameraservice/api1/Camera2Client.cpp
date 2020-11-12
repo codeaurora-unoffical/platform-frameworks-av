@@ -32,7 +32,7 @@
 #include "api1/client2/JpegProcessor.h"
 #include "api1/client2/CaptureSequencer.h"
 #include "api1/client2/CallbackProcessor.h"
-#include "api1/client2/ZslProcessor.h"
+//#include "api1/client2/ZslProcessor.h"
 #include "utils/CameraThreadState.h"
 
 #define ALOG1(...) ALOGD_IF(gLogLevel >= 1, __VA_ARGS__);
@@ -131,11 +131,11 @@ status_t Camera2Client::initializeImpl(TProviderPtr providerPtr, const String8& 
             mCameraId);
     mJpegProcessor->run(threadName.string());
 
-    mZslProcessor = new ZslProcessor(this, mCaptureSequencer);
+    /*mZslProcessor = new ZslProcessor(this, mCaptureSequencer);
 
     threadName = String8::format("C2-%d-ZslProc",
             mCameraId);
-    mZslProcessor->run(threadName.string());
+    mZslProcessor->run(threadName.string()); */
 
     mCallbackProcessor = new CallbackProcessor(this);
     threadName = String8::format("C2-%d-CallbkProc",
@@ -385,7 +385,7 @@ status_t Camera2Client::dumpClient(int fd, const Vector<String16>& args) {
 
     mFrameProcessor->dump(fd, args);
 
-    mZslProcessor->dump(fd, args);
+    //mZslProcessor->dump(fd, args);
 
     return dumpDevice(fd, args);
 #undef CASE_APPEND_ENUM
@@ -423,7 +423,7 @@ binder::Status Camera2Client::disconnect() {
     mFrameProcessor->requestExit();
     mCaptureSequencer->requestExit();
     mJpegProcessor->requestExit();
-    mZslProcessor->requestExit();
+    //mZslProcessor->requestExit();
     mCallbackProcessor->requestExit();
 
     ALOGV("Camera %d: Waiting for threads", mCameraId);
@@ -436,7 +436,7 @@ binder::Status Camera2Client::disconnect() {
         mFrameProcessor->join();
         mCaptureSequencer->join();
         mJpegProcessor->join();
-        mZslProcessor->join();
+        //mZslProcessor->join();
         mCallbackProcessor->join();
 
         mBinderSerializationLock.lock();
@@ -448,7 +448,7 @@ binder::Status Camera2Client::disconnect() {
     mStreamingProcessor->deleteRecordingStream();
     mJpegProcessor->deleteStream();
     mCallbackProcessor->deleteStream();
-    mZslProcessor->deleteStream();
+    //mZslProcessor->deleteStream();
 
     ALOGV("Camera %d: Disconnecting device", mCameraId);
 
@@ -816,7 +816,7 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
             return res;
         }
     }
-    bool jpegStreamChanged = mJpegProcessor->getStreamId() != lastJpegStreamId;
+    //bool jpegStreamChanged = mJpegProcessor->getStreamId() != lastJpegStreamId;
 
     Vector<int32_t> outputStreams;
     bool callbacksEnabled = (params.previewCallbackFlags &
@@ -866,7 +866,7 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
         }
     }
 
-    if (params.useZeroShutterLag() &&
+    /*if (params.useZeroShutterLag() &&
             getRecordingStreamId() == NO_STREAM) {
         res = updateProcessorStream(mZslProcessor, params);
         if (res != OK) {
@@ -883,7 +883,7 @@ status_t Camera2Client::startPreviewL(Parameters &params, bool restart) {
         outputStreams.push(getZslStreamId());
     } else {
         mZslProcessor->deleteStream();
-    }
+    } */
 
     outputStreams.push(getPreviewStreamId());
 
@@ -1120,7 +1120,7 @@ status_t Camera2Client::startRecordingL(Parameters &params, bool restart) {
     }
 
     // Clean up ZSL before transitioning into recording
-    if (mZslProcessor->getStreamId() != NO_STREAM) {
+    /*if (mZslProcessor->getStreamId() != NO_STREAM) {
         ALOGV("%s: Camera %d: Clearing out zsl stream before "
                 "creating recording stream", __FUNCTION__, mCameraId);
         res = mStreamingProcessor->stopStream();
@@ -1147,7 +1147,7 @@ status_t Camera2Client::startRecordingL(Parameters &params, bool restart) {
                     strerror(-res), res);
             return res;
         }
-    }
+    }*/
 
     // Disable callbacks if they're enabled; can't record and use callbacks,
     // and we can't fail record start without stagefright asserting.
@@ -1428,9 +1428,9 @@ status_t Camera2Client::cancelAutoFocus() {
 
             return OK;
         }
-        if (l.mParameters.allowZslMode) {
+        /*if (l.mParameters.allowZslMode) {
             mZslProcessor->clearZslQueue();
-        }
+        }*/
     }
     syncWithDevice();
 
@@ -1506,7 +1506,7 @@ status_t Camera2Client::takePicture(int /*msgType*/) {
         }
 
         ALOGV("%s: Camera %d: Starting picture capture", __FUNCTION__, mCameraId);
-        int lastJpegStreamId = mJpegProcessor->getStreamId();
+        //int lastJpegStreamId = mJpegProcessor->getStreamId();
         // slowJpegMode will create jpeg stream in CaptureSequencer before capturing
         if (!l.mParameters.slowJpegMode) {
             res = updateProcessorStream(mJpegProcessor, l.mParameters);
@@ -1526,12 +1526,12 @@ status_t Camera2Client::takePicture(int /*msgType*/) {
         takePictureCounter = ++l.mParameters.takePictureCounter;
 
         // Clear ZSL buffer queue when Jpeg size is changed.
-        bool jpegStreamChanged = mJpegProcessor->getStreamId() != lastJpegStreamId;
+        /* bool jpegStreamChanged = mJpegProcessor->getStreamId() != lastJpegStreamId;
         if (l.mParameters.allowZslMode && jpegStreamChanged) {
             ALOGV("%s: Camera %d: Clear ZSL buffer queue when Jpeg size is changed",
                     __FUNCTION__, mCameraId);
             mZslProcessor->clearZslQueue();
-        }
+        }*/
 
         // We should always sync with the device in case flash is turned on,
         // the camera device suggests that flash is needed (AE state FLASH_REQUIRED)
@@ -1568,14 +1568,14 @@ status_t Camera2Client::setParameters(const String8& params) {
 
     SharedParameters::Lock l(mParameters);
 
-    Parameters::focusMode_t focusModeBefore = l.mParameters.focusMode;
+    //Parameters::focusMode_t focusModeBefore = l.mParameters.focusMode;
     res = l.mParameters.set(params);
     if (res != OK) return res;
-    Parameters::focusMode_t focusModeAfter = l.mParameters.focusMode;
+    //Parameters::focusMode_t focusModeAfter = l.mParameters.focusMode;
 
-    if (l.mParameters.allowZslMode && focusModeAfter != focusModeBefore) {
+    /*if (l.mParameters.allowZslMode && focusModeAfter != focusModeBefore) {
         mZslProcessor->clearZslQueue();
-    }
+    }*/
 
     res = updateRequests(l.mParameters);
 
@@ -1955,9 +1955,9 @@ int Camera2Client::getRecordingStreamId() const {
     return mStreamingProcessor->getRecordingStreamId();
 }
 
-int Camera2Client::getZslStreamId() const {
+/*int Camera2Client::getZslStreamId() const {
     return mZslProcessor->getStreamId();
-}
+}*/
 
 status_t Camera2Client::registerFrameListener(int32_t minId, int32_t maxId,
         const wp<camera2::FrameProcessor::FilteredListener>& listener, bool sendPartials) {

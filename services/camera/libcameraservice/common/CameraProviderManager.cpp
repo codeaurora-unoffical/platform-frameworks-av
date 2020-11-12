@@ -930,7 +930,7 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::fillHeicStreamCombina
     }
 
     static bool supportInMemoryTempFile =
-            camera3::HeicCompositeStream::isInMemoryTempFileSupported();
+            false; //camera3::HeicCompositeStream::isInMemoryTempFileSupported();
     if (!supportInMemoryTempFile) {
         ALOGI("%s: No HEIC support due to absence of in memory temp file support",
                 __FUNCTION__);
@@ -955,7 +955,7 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::fillHeicStreamCombina
             }
         }
         if (sizeAvail) continue;
-
+#if 0
         int64_t stall = 0;
         bool useHeic, useGrid;
         if (camera3::HeicCompositeStream::isSizeSupportedByHeifEncoder(
@@ -987,6 +987,8 @@ status_t CameraProviderManager::ProviderInfo::DeviceInfo3::fillHeicStreamCombina
                     halStreamConfigs.data.i32[i+2], stall};
             stallDurations->insert(stallDurations->end(), stallDuration, stallDuration+4);
         }
+#endif
+        (void)halStreamDurations;
     }
     return OK;
 }

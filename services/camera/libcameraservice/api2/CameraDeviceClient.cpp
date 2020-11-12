@@ -33,8 +33,8 @@
 
 #include <camera_metadata_hidden.h>
 
-#include "DepthCompositeStream.h"
-#include "HeicCompositeStream.h"
+//#include "DepthCompositeStream.h"
+//#include "HeicCompositeStream.h"
 
 // Convenience methods for constructing binder::Status objects for error returns
 
@@ -721,7 +721,7 @@ binder::Status CameraDeviceClient::isSessionConfigurationSupported(
                 return res;
 
             if (!isStreamInfoValid) {
-                bool isDepthCompositeStream =
+                /*bool isDepthCompositeStream =
                         camera3::DepthCompositeStream::isDepthCompositeStream(surface);
                 bool isHeicCompositeStream =
                         camera3::HeicCompositeStream::isHeicCompositeStream(surface);
@@ -759,7 +759,7 @@ binder::Status CameraDeviceClient::isSessionConfigurationSupported(
                                 static_cast<camera3_stream_rotation_t> (it.getRotation()),
                                 physicalCameraId, &streamConfiguration.streams[streamIdx++]);
                     }
-                } else {
+                } else */{
                     mapStreamInfo(streamInfo,
                             static_cast<camera3_stream_rotation_t> (it.getRotation()),
                             physicalCameraId, &streamConfiguration.streams[streamIdx++]);
@@ -961,7 +961,7 @@ binder::Status CameraDeviceClient::createStream(
 
     int streamId = camera3::CAMERA3_STREAM_ID_INVALID;
     std::vector<int> surfaceIds;
-    bool isDepthCompositeStream = camera3::DepthCompositeStream::isDepthCompositeStream(surfaces[0]);
+/*    bool isDepthCompositeStream = camera3::DepthCompositeStream::isDepthCompositeStream(surfaces[0]);
     bool isHeicCompisiteStream = camera3::HeicCompositeStream::isHeicCompositeStream(surfaces[0]);
     if (isDepthCompositeStream || isHeicCompisiteStream) {
         sp<CompositeStream> compositeStream;
@@ -980,7 +980,7 @@ binder::Status CameraDeviceClient::createStream(
             mCompositeStreamMap.add(IInterface::asBinder(surfaces[0]->getIGraphicBufferProducer()),
                     compositeStream);
         }
-    } else {
+    } else */{
         err = mDevice->createStream(surfaces, deferredConsumer, streamInfo.width,
                 streamInfo.height, streamInfo.format, streamInfo.dataSpace,
                 static_cast<camera3_stream_rotation_t>(outputConfiguration.getRotation()),

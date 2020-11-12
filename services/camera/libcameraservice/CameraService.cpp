@@ -84,7 +84,7 @@ namespace android {
 
 using base::StringPrintf;
 using binder::Status;
-using frameworks::cameraservice::service::V2_0::implementation::HidlCameraService;
+//using frameworks::cameraservice::service::V2_0::implementation::HidlCameraService;
 using hardware::ICamera;
 using hardware::ICameraClient;
 using hardware::ICameraServiceProxy;
@@ -157,11 +157,11 @@ void CameraService::onFirstRef()
     mUidPolicy->registerSelf();
     mSensorPrivacyPolicy = new SensorPrivacyPolicy(this);
     mSensorPrivacyPolicy->registerSelf();
-    sp<HidlCameraService> hcs = HidlCameraService::getInstance(this);
+    /*sp<HidlCameraService> hcs = HidlCameraService::getInstance(this);
     if (hcs->registerAsService() != android::OK) {
         ALOGE("%s: Failed to register default android.frameworks.cameraservice.service@1.0",
               __FUNCTION__);
-    }
+    }*/
 
     // This needs to be last call in this function, so that it's as close to
     // ServiceManager::addService() as possible.

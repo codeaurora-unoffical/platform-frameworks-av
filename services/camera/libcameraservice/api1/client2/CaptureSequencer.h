@@ -34,7 +34,7 @@ class Camera2Client;
 
 namespace camera2 {
 
-class ZslProcessor;
+//class ZslProcessor;
 
 /**
  * Manages the still image capture process for
@@ -48,7 +48,7 @@ class CaptureSequencer:
     ~CaptureSequencer();
 
     // Get reference to the ZslProcessor, which holds the ZSL buffers and frames
-    void setZslProcessor(const wp<ZslProcessor>& processor);
+//    void setZslProcessor(const wp<ZslProcessor>& processor);
 
     // Begin still image capture
     status_t startCapture();
@@ -117,14 +117,14 @@ class CaptureSequencer:
     static const int kMaxRetryCount = 3; // 3 retries in case of buffer drop
 
     wp<Camera2Client> mClient;
-    wp<ZslProcessor> mZslProcessor;
+//    wp<ZslProcessor> mZslProcessor;
 
     enum CaptureState {
         IDLE,
         START,
-        ZSL_START,
-        ZSL_WAITING,
-        ZSL_REPROCESSING,
+//        ZSL_START,
+//        ZSL_WAITING,
+//        ZSL_REPROCESSING,
         STANDARD_START,
         STANDARD_PRECAPTURE_WAIT,
         STANDARD_CAPTURE,
@@ -156,9 +156,9 @@ class CaptureSequencer:
     CaptureState manageIdle(sp<Camera2Client> &client);
     CaptureState manageStart(sp<Camera2Client> &client);
 
-    CaptureState manageZslStart(sp<Camera2Client> &client);
-    CaptureState manageZslWaiting(sp<Camera2Client> &client);
-    CaptureState manageZslReprocessing(sp<Camera2Client> &client);
+//    CaptureState manageZslStart(sp<Camera2Client> &client);
+//    CaptureState manageZslWaiting(sp<Camera2Client> &client);
+//    CaptureState manageZslReprocessing(sp<Camera2Client> &client);
 
     CaptureState manageStandardStart(sp<Camera2Client> &client);
     CaptureState manageStandardPrecaptureWait(sp<Camera2Client> &client);

@@ -34,7 +34,7 @@ namespace camera2 {
 
 class StreamingProcessor;
 class JpegProcessor;
-class ZslProcessor;
+//class ZslProcessor;
 class CaptureSequencer;
 class CallbackProcessor;
 
@@ -126,7 +126,7 @@ public:
     int getCaptureStreamId() const;
     int getCallbackStreamId() const;
     int getRecordingStreamId() const;
-    int getZslStreamId() const;
+    //int getZslStreamId() const;
 
     status_t registerFrameListener(int32_t minId, int32_t maxId,
             const wp<camera2::FrameProcessor::FilteredListener>& listener,
@@ -212,7 +212,7 @@ private:
 
     sp<camera2::CaptureSequencer> mCaptureSequencer;
     sp<camera2::JpegProcessor> mJpegProcessor;
-    sp<camera2::ZslProcessor> mZslProcessor;
+    //sp<camera2::ZslProcessor> mZslProcessor;
 
     /** Utility members */
     bool mLegacyMode;

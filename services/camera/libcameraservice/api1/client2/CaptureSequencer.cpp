@@ -27,7 +27,7 @@
 #include "api1/Camera2Client.h"
 #include "api1/client2/CaptureSequencer.h"
 #include "api1/client2/Parameters.h"
-#include "api1/client2/ZslProcessor.h"
+//#include "api1/client2/ZslProcessor.h"
 
 namespace android {
 namespace camera2 {
@@ -58,10 +58,10 @@ CaptureSequencer::~CaptureSequencer() {
     ALOGV("%s: Exit", __FUNCTION__);
 }
 
-void CaptureSequencer::setZslProcessor(const wp<ZslProcessor>& processor) {
+/*void CaptureSequencer::setZslProcessor(const wp<ZslProcessor>& processor) {
     Mutex::Autolock l(mInputMutex);
     mZslProcessor = processor;
-}
+}*/
 
 status_t CaptureSequencer::startCapture() {
     ALOGV("%s", __FUNCTION__);
@@ -196,9 +196,9 @@ const char* CaptureSequencer::kStateNames[CaptureSequencer::NUM_CAPTURE_STATES+1
 {
     "IDLE",
     "START",
-    "ZSL_START",
-    "ZSL_WAITING",
-    "ZSL_REPROCESSING",
+//    "ZSL_START",
+//    "ZSL_WAITING",
+//    "ZSL_REPROCESSING",
     "STANDARD_START",
     "STANDARD_PRECAPTURE_WAIT",
     "STANDARD_CAPTURE",
@@ -212,9 +212,9 @@ const CaptureSequencer::StateManager
         CaptureSequencer::kStateManagers[CaptureSequencer::NUM_CAPTURE_STATES-1] = {
     &CaptureSequencer::manageIdle,
     &CaptureSequencer::manageStart,
-    &CaptureSequencer::manageZslStart,
-    &CaptureSequencer::manageZslWaiting,
-    &CaptureSequencer::manageZslReprocessing,
+//    &CaptureSequencer::manageZslStart,
+//    &CaptureSequencer::manageZslWaiting,
+//    &CaptureSequencer::manageZslReprocessing,
     &CaptureSequencer::manageStandardStart,
     &CaptureSequencer::manageStandardPrecaptureWait,
     &CaptureSequencer::manageStandardCapture,
@@ -318,12 +318,12 @@ CaptureSequencer::CaptureState CaptureSequencer::manageDone(sp<Camera2Client> &c
         }
         takePictureCounter = l.mParameters.takePictureCounter;
     }
-    sp<ZslProcessor> processor = mZslProcessor.promote();
+    /*sp<ZslProcessor> processor = mZslProcessor.promote();
     if (processor != 0) {
         ALOGV("%s: Memory optimization, clearing ZSL queue",
               __FUNCTION__);
         processor->clearZslQueue();
-    }
+    }*/
 
     /**
      * Fire the jpegCallback in Camera#takePicture(..., jpegCallback)
@@ -361,11 +361,11 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStart(
         return DONE;
     }
 
-    else if (l.mParameters.useZeroShutterLag() &&
+    /*else if (l.mParameters.useZeroShutterLag() &&
             l.mParameters.state == Parameters::STILL_CAPTURE &&
             l.mParameters.flashMode != Parameters::FLASH_MODE_ON) {
         nextState = ZSL_START;
-    } else {
+    } */else {
         nextState = STANDARD_START;
     }
     {
@@ -377,7 +377,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageStart(
 
     return nextState;
 }
-
+#if 0
 CaptureSequencer::CaptureState CaptureSequencer::manageZslStart(
         sp<Camera2Client> &client) {
     ALOGV("%s", __FUNCTION__);
@@ -414,7 +414,6 @@ CaptureSequencer::CaptureState CaptureSequencer::manageZslStart(
     mTimeoutCount = kMaxTimeoutsForCaptureEnd;
     return STANDARD_CAPTURE_WAIT;
 }
-
 CaptureSequencer::CaptureState CaptureSequencer::manageZslWaiting(
         sp<Camera2Client> &/*client*/) {
     ALOGV("%s", __FUNCTION__);
@@ -426,7 +425,7 @@ CaptureSequencer::CaptureState CaptureSequencer::manageZslReprocessing(
     ALOGV("%s", __FUNCTION__);
     return START;
 }
-
+#endif
 CaptureSequencer::CaptureState CaptureSequencer::manageStandardStart(
         sp<Camera2Client> &client) {
     ATRACE_CALL();

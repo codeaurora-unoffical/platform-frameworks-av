@@ -54,6 +54,7 @@
 #include <media/stagefright/MediaCodecList.h>
 #include <media/stagefright/MediaDefs.h>
 #include <media/stagefright/MediaErrors.h>
+#include <media/stagefright/MediaFilter.h>
 #include <media/stagefright/OMXClient.h>
 #include <media/stagefright/PersistentSurface.h>
 #include <media/stagefright/SurfaceUtils.h>
@@ -896,6 +897,10 @@ sp<CodecBase> MediaCodec::GetCodecBase(const AString &name, const char *owner) {
     } else if (name.startsWithIgnoreCase("omx.")) {
         // at this time only ACodec specifies a mime type.
         return AVFactory::get()->createACodec();
+    } else if (name.startsWithIgnoreCase("android.filter.qti")) {
+        return AVFactory::get()->createMediaFilter();
+    } else if (name.startsWithIgnoreCase("android.filter")) {
+        return new MediaFilter;
     } else {
         return NULL;
     }

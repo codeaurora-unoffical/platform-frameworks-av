@@ -199,6 +199,7 @@ cc_library {
         "libstagefright_codecbase",
         "libstagefright_foundation",
         "libstagefright_omx_utils",
+        "libRScpp",
         "libhidlallocatorutils",
         "libhidlbase",
         "libhidlmemory",
@@ -211,6 +212,7 @@ cc_library {
     static_libs: [
         "libstagefright_color_conversion",
         "libyuv_static",
+        "libstagefright_mediafilter",
         "libstagefright_webm",
         "libstagefright_timedtext",
         "libogg",

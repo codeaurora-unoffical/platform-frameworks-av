@@ -643,6 +643,17 @@ void NuPlayer::Renderer::onMessageReceived(const sp<AMessage> &msg) {
                 break;
             }
 
+            int64_t mediaTimeUs = -1;
+            if (mAnchorTimeMediaUs < 0 && msg->findInt64("mediaTimeUs", &mediaTimeUs)
+                    && mediaTimeUs != -1) {
+                ALOGI("NOTE: audio still doesn't update anchor yet after wait, video has to update "
+                        "anchor and start rendering");
+                int64_t nowUs = ALooper::GetNowUs();
+                mMediaClock->updateAnchor(mediaTimeUs, nowUs,
+                    (mHasAudio ? -1 : mediaTimeUs + kDefaultVideoFrameIntervalUs));
+                mAnchorTimeMediaUs = mediaTimeUs;
+            }
+
             mDrainVideoQueuePending = false;
 
             onDrainVideoQueue();
@@ -934,6 +945,11 @@ size_t NuPlayer::Renderer::fillAudioBuffer(void *buffer, size_t size) {
             firstEntry = false;
             int64_t mediaTimeUs;
             CHECK(entry->mBuffer->meta()->findInt64("timeUs", &mediaTimeUs));
+            if (mediaTimeUs < 0) {
+                ALOGD("fillAudioBuffer: reset negative media time %.2f secs to zero",
+                       mediaTimeUs / 1E6);
+                mediaTimeUs = 0;
+            }
             ALOGV("fillAudioBuffer: rendering audio at media time %.2f secs", mediaTimeUs / 1E6);
             setAudioFirstAnchorTimeIfNeeded_l(mediaTimeUs);
         }
@@ -1357,15 +1373,17 @@ void NuPlayer::Renderer::postDrainVideoQueue() {
             clearAnchorTime();
         }
         if (mAnchorTimeMediaUs < 0) {
-            if (!mVideoSampleReceived && mHasAudio) {
+            if (mPaused && !mVideoSampleReceived && mHasAudio) {
                 // this is the first video buffer to be drained, and we know there is audio track
                 // exist. sicne audio start has inevitable latency, we wait audio for a while, give
                 // audio a chance to update anchor time. video doesn't update anchor this time to
                 // alleviate a/v sync issue
                 auto audioStartLatency = 1000 * (mAudioSink->latency()
                                 - (1000 * mAudioSink->frameCount() / mAudioSink->getSampleRate()));
-                ALOGV("First video buffer, wait audio for a while due to audio start latency(%zuus)",
+                ALOGI("NOTE: First video buffer, wait audio for a while due to audio start latency(%zuus)",
                         audioStartLatency);
+                // use first buffer ts to update anchor
+                msg->setInt64("mediaTimeUs", mediaTimeUs);
                 msg->post(audioStartLatency);
                 mDrainVideoQueuePending = true;
                 return;

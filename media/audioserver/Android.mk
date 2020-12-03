@@ -20,7 +20,6 @@ LOCAL_SHARED_LIBRARIES := \
 	libmediautils \
 	libnbaio \
 	libnblog \
-	libsoundtriggerservice \
 	libutils \
 	libvibrator
 
@@ -63,6 +62,10 @@ LOCAL_MODULE := audioserver
 LOCAL_INIT_RC := audioserver.rc
 
 LOCAL_CFLAGS := -Werror -Wall
+
+ifeq ($(strip $(KAI_OPTIMIZATION_FOR_AUDIO)), true)
+LOCAL_CFLAGS += -DKAI_OPTIMIZATION_ENABLE
+endif
 
 ifeq ($(strip $(AUDIO_FEATURE_ENABLED_3D_AUDIO)), true)
     LOCAL_CFLAGS += -DVRAUDIOSERVICE_ENABLE

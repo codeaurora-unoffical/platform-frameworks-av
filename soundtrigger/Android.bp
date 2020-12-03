@@ -32,5 +32,6 @@ cc_library_shared {
     cflags: [
         "-Werror",
         "-Wall",
+        "-DKAI_OPTIMIZATION_ENABLE"
     ],
 }

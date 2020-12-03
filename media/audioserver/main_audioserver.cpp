@@ -208,7 +208,9 @@ int main(int argc __unused, char **argv)
             AAudioService::instantiate();
         }
 
+#ifndef KAI_OPTIMIZATION_ENABLE
         SoundTriggerHwService::instantiate();
+#endif
         ProcessState::self()->startThreadPool();
         IPCThreadState::self()->joinThreadPool();
     }

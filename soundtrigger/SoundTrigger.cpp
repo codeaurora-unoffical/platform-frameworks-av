@@ -57,6 +57,9 @@ namespace {
 
 const sp<ISoundTriggerHwService> SoundTrigger::getSoundTriggerHwService()
 {
+#ifdef KAI_OPTIMIZATION_ENABLE
+    return NULL;
+#endif
     Mutex::Autolock _l(gLock);
     if (gSoundTriggerHwService.get() == 0) {
         sp<IServiceManager> sm = defaultServiceManager();

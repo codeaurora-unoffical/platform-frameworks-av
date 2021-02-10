@@ -250,11 +250,6 @@ status_t CCodecBufferChannel::queueInputBufferInternal(sp<MediaCodecBuffer> buff
             input->frameReassembler.process(buffer, &items);
         } else {
             work->input.buffers.push_back(c2buffer);
-            if (encryptedBlock) {
-                work->input.infoBuffers.emplace_back(C2InfoBuffer::CreateLinearBuffer(
-                        kParamIndexEncryptedBuffer,
-                        encryptedBlock->share(0, blockSize, C2Fence())));
-            }
         }
     } else if (eos) {
         flags |= C2FrameData::FLAG_END_OF_STREAM;
